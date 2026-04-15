@@ -157,36 +157,7 @@ namespace Loader
 
 		//FSItemList = ILCreateFromPathA(Index::GetAddonDirectory(nullptr));
 		std::string addonDirStr = Index(EPath::DIR_ADDONS).string();
-		Logger->Info(CH_LOADER, "[DEBUG] Addon directory (narrow): %s", addonDirStr.c_str());
-		Logger->Info(CH_LOADER, "[DEBUG] Does addon directory exist: %d", std::filesystem::exists(addonDirStr));
-		
-		// Try to resolve symlinks by checking parent directories
-		std::filesystem::path addonPath(addonDirStr);
-		std::filesystem::path resolvedPath = addonPath;
-		
-		try
-		{
-			// Try canonical resolution with weakly_canonical as fallback
-			if (std::filesystem::exists(addonPath))
-			{
-				resolvedPath = std::filesystem::weakly_canonical(addonPath);
-				Logger->Info(CH_LOADER, "[DEBUG] Weakly canonical path: %s", resolvedPath.string().c_str());
-				
-				// Also try canonical for full resolution
-				resolvedPath = std::filesystem::canonical(addonPath);
-				Logger->Info(CH_LOADER, "[DEBUG] Canonical path: %s", resolvedPath.string().c_str());
-			}
-		}
-		catch (const std::filesystem::filesystem_error& e)
-		{
-			Logger->Warning(CH_LOADER, "[DEBUG] Error resolving canonical path: %s", e.what());
-			resolvedPath = addonPath;
-		}
-		
-		addonDirStr = resolvedPath.string();
 		std::wstring addonDirW = String::ToWString(addonDirStr);
-		Logger->Info(CH_LOADER, "[DEBUG] Final path (narrow): %s", addonDirStr.c_str());
-		Logger->Info(CH_LOADER, "[DEBUG] Final path (wide): %ws", addonDirW.c_str());
 		
 		HRESULT hresult = SHParseDisplayName(
 			addonDirW.c_str(),
@@ -195,15 +166,10 @@ namespace Loader
 			0xFFFFFFFF,
 			0
 		);
-		Logger->Info(CH_LOADER, "[DEBUG] SHParseDisplayName result: 0x%X", hresult);
-		Logger->Info(CH_LOADER, "[DEBUG] FSItemList: %p", FSItemList);
 		
 		if (FSItemList == 0)
 		{
-			Logger->Critical(CH_LOADER, "[CRITICAL] Final addon path: %s", addonDirStr.c_str());
-			Logger->Critical(CH_LOADER, "[CRITICAL] SHParseDisplayName failed: 0x%X (%d)", hresult, hresult);
-			Logger->Critical(CH_LOADER, "[CRITICAL] This may be a Wine/Proton compatibility issue with file system notifications on symlinked paths.");
-			return;
+			Logger->Warning(CH_LOADER, "Shell file notifications unavailable (symlink in path: %s). Using polling fallback.", addonDirStr.c_str());
 		}
 
 		SHChangeNotifyEntry changeentry{};
@@ -220,8 +186,9 @@ namespace Loader
 
 		if (FSNotifierID <= 0)
 		{
-			Logger->Critical(CH_LOADER, "Loader disabled. Reason: SHChangeNotifyRegister(...) returned 0.");
-			return;
+			Logger->Warning(CH_LOADER, "Shell file notifications failed (may be Wine/Proton symlink issue). Using polling fallback for addon detection.");
+			// Don't return - continue with polling as fallback
+			FSNotifierID = 0;
 		}
 
 		std::thread(Library::Fetch).detach();
@@ -522,7 +489,19 @@ namespace Loader
 		for (;;)
 		{
 			std::unique_lock<std::mutex> lockThread(ThreadMutex);
-			ConVar.wait(lockThread, [] { return !IsSuspended; });
+			
+			// Use timeout-based wait as fallback for Wine/Proton without shell notifications
+			// If shell notifications work, ConVar will be notified immediately
+			// If not, this will timeout every 5 seconds and poll the directory anyway
+			bool notified = ConVar.wait_for(lockThread, std::chrono::seconds(5), [] { return !IsSuspended; });
+			
+			if (!notified)
+			{
+				// Timeout occurred - force a check when shell notifications don't work
+				Logger->Trace(CH_LOADER, "Polling check triggered (shell notifications timeout)");
+				NotifyChanges();
+				continue;
+			}
 
 			auto start_time = std::chrono::high_resolution_clock::now();
 			while (DirectoryChangeCountdown > 0)
