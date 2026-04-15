@@ -160,6 +160,19 @@ namespace Loader
 		Logger->Info(CH_LOADER, "[DEBUG] Addon directory (narrow): %s", addonDirStr.c_str());
 		Logger->Info(CH_LOADER, "[DEBUG] Does addon directory exist: %d", std::filesystem::exists(addonDirStr));
 		
+		// Resolve symlinks to canonical path (fixes Wine/Proton symlink issues)
+		try
+		{
+			std::string canonicalPath = std::filesystem::canonical(addonDirStr).string();
+			Logger->Info(CH_LOADER, "[DEBUG] Canonical path resolved: %s", canonicalPath.c_str());
+			addonDirStr = canonicalPath;
+		}
+		catch (const std::filesystem::filesystem_error& e)
+		{
+			Logger->Warning(CH_LOADER, "[DEBUG] Could not resolve canonical path: %s", e.what());
+			// Continue with original path if canonical resolution fails
+		}
+		
 		std::wstring addonDirW = String::ToWString(addonDirStr);
 		Logger->Info(CH_LOADER, "[DEBUG] Addon directory (wide): %ws", addonDirW.c_str());
 		
