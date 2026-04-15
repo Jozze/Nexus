@@ -156,7 +156,13 @@ namespace Loader
 		LoadAddonConfig();
 
 		//FSItemList = ILCreateFromPathA(Index::GetAddonDirectory(nullptr));
-		std::wstring addonDirW = String::ToWString(Index(EPath::DIR_ADDONS).string());
+		std::string addonDirStr = Index(EPath::DIR_ADDONS).string();
+		Logger->Info(CH_LOADER, "[DEBUG] Addon directory (narrow): %s", addonDirStr.c_str());
+		Logger->Info(CH_LOADER, "[DEBUG] Does addon directory exist: %d", std::filesystem::exists(addonDirStr));
+		
+		std::wstring addonDirW = String::ToWString(addonDirStr);
+		Logger->Info(CH_LOADER, "[DEBUG] Addon directory (wide): %ws", addonDirW.c_str());
+		
 		HRESULT hresult = SHParseDisplayName(
 			addonDirW.c_str(),
 			0,
@@ -164,10 +170,14 @@ namespace Loader
 			0xFFFFFFFF,
 			0
 		);
+		Logger->Info(CH_LOADER, "[DEBUG] SHParseDisplayName result: 0x%X", hresult);
+		Logger->Info(CH_LOADER, "[DEBUG] FSItemList: %p", FSItemList);
+		
 		if (FSItemList == 0)
 		{
-			Logger->Critical(CH_LOADER, "Value of addonDirW.c_str(): %s", addonDirW.c_str());
-			Logger->Critical(CH_LOADER, "Loader disabled. Reason: SHParseDisplayName(Index::D_GW2_ADDONS) returned %d.", hresult);
+			Logger->Critical(CH_LOADER, "[CRITICAL] Addon directory path: %s", addonDirStr.c_str());
+			Logger->Critical(CH_LOADER, "[CRITICAL] Path exists check: %d", std::filesystem::exists(addonDirStr));
+			Logger->Critical(CH_LOADER, "[CRITICAL] Loader disabled. Reason: SHParseDisplayName returned 0x%X (%d).", hresult, hresult);
 			return;
 		}
 
