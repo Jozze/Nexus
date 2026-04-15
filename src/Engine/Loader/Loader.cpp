@@ -166,6 +166,7 @@ namespace Loader
 		);
 		if (FSItemList == 0)
 		{
+			Logger->Critical(CH_LOADER, "Value of addonDirW.c_str(): %s", addonDirW.c_str());
 			Logger->Critical(CH_LOADER, "Loader disabled. Reason: SHParseDisplayName(Index::D_GW2_ADDONS) returned %d.", hresult);
 			return;
 		}
