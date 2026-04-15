@@ -160,21 +160,33 @@ namespace Loader
 		Logger->Info(CH_LOADER, "[DEBUG] Addon directory (narrow): %s", addonDirStr.c_str());
 		Logger->Info(CH_LOADER, "[DEBUG] Does addon directory exist: %d", std::filesystem::exists(addonDirStr));
 		
-		// Resolve symlinks to canonical path (fixes Wine/Proton symlink issues)
+		// Try to resolve symlinks by checking parent directories
+		std::filesystem::path addonPath(addonDirStr);
+		std::filesystem::path resolvedPath = addonPath;
+		
 		try
 		{
-			std::string canonicalPath = std::filesystem::canonical(addonDirStr).string();
-			Logger->Info(CH_LOADER, "[DEBUG] Canonical path resolved: %s", canonicalPath.c_str());
-			addonDirStr = canonicalPath;
+			// Try canonical resolution with weakly_canonical as fallback
+			if (std::filesystem::exists(addonPath))
+			{
+				resolvedPath = std::filesystem::weakly_canonical(addonPath);
+				Logger->Info(CH_LOADER, "[DEBUG] Weakly canonical path: %s", resolvedPath.string().c_str());
+				
+				// Also try canonical for full resolution
+				resolvedPath = std::filesystem::canonical(addonPath);
+				Logger->Info(CH_LOADER, "[DEBUG] Canonical path: %s", resolvedPath.string().c_str());
+			}
 		}
 		catch (const std::filesystem::filesystem_error& e)
 		{
-			Logger->Warning(CH_LOADER, "[DEBUG] Could not resolve canonical path: %s", e.what());
-			// Continue with original path if canonical resolution fails
+			Logger->Warning(CH_LOADER, "[DEBUG] Error resolving canonical path: %s", e.what());
+			resolvedPath = addonPath;
 		}
 		
+		addonDirStr = resolvedPath.string();
 		std::wstring addonDirW = String::ToWString(addonDirStr);
-		Logger->Info(CH_LOADER, "[DEBUG] Addon directory (wide): %ws", addonDirW.c_str());
+		Logger->Info(CH_LOADER, "[DEBUG] Final path (narrow): %s", addonDirStr.c_str());
+		Logger->Info(CH_LOADER, "[DEBUG] Final path (wide): %ws", addonDirW.c_str());
 		
 		HRESULT hresult = SHParseDisplayName(
 			addonDirW.c_str(),
@@ -188,9 +200,9 @@ namespace Loader
 		
 		if (FSItemList == 0)
 		{
-			Logger->Critical(CH_LOADER, "[CRITICAL] Addon directory path: %s", addonDirStr.c_str());
-			Logger->Critical(CH_LOADER, "[CRITICAL] Path exists check: %d", std::filesystem::exists(addonDirStr));
-			Logger->Critical(CH_LOADER, "[CRITICAL] Loader disabled. Reason: SHParseDisplayName returned 0x%X (%d).", hresult, hresult);
+			Logger->Critical(CH_LOADER, "[CRITICAL] Final addon path: %s", addonDirStr.c_str());
+			Logger->Critical(CH_LOADER, "[CRITICAL] SHParseDisplayName failed: 0x%X (%d)", hresult, hresult);
+			Logger->Critical(CH_LOADER, "[CRITICAL] This may be a Wine/Proton compatibility issue with file system notifications on symlinked paths.");
 			return;
 		}
 
